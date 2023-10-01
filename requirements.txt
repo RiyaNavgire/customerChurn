@@ -1,6 +1,9 @@
 pandas
 matplotlib
 sentence_transformers==2.0.0
-xgboost==1.4.2
-spacy>=3.0.0,<4.0.0
+sagemaker
+json
+numpy
+joblib
+tensorflow
 https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.0.0/en_core_web_sm-3.0.0.tar.gz#egg=en_core_web_sm
