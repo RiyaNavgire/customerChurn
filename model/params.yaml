@@ -1,0 +1,8 @@
+data_dir: "../data"
+model_dir: "../model"
+batch_size: 265
+epochs: 10
+used_features: 1.0
+learning_rate: 0.01
+num_classes: 2
+depth: 10
