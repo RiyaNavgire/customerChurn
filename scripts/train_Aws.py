@@ -23,28 +23,32 @@ import pandas as pd
 from pathlib import Path
 import tensorflow as tf
 from tensorflow import keras
-from matplotlib import pyplot as plt
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 from sklearn.metrics import precision_recall_curve
-import create_dataset
 from tensorflow.keras import layers
-from tensorflow.keras.layers import StringLookup,IntegerLookup
+from tensorflow.keras.layers.experimental.preprocessing import StringLookup,IntegerLookup
 import os
 import sklearn
 import pandas as pd
 import sklearn.metrics
+import boto3
+#import datetime
 
-def model_fn(model_dir):
-    clf = joblib.load(os.path.join(model_dir,"model.joblib"))
-    return clf
+#def model_fn(model_dir):
+ #   clf = joblib.load(os.path.join(model_dir,"model.joblib"))
+  #  return clf
 
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler(sys.stdout))
+
+#sm_boto3 = boto3.client("sagemaker")
+#sess = sagemaker.Session()
+#region = sess.boto_session.region_name
 
  
 ##Create model Inputs 
@@ -97,7 +101,7 @@ class NeuralDecisionTree(keras.Model):
             units=self.num_leaves, activation="sigmoid", name="decision"
         )
 
-    #Blackbox
+    
     def call(self, features):
         batch_size = tf.shape(features)[0]
 
@@ -155,15 +159,16 @@ def get_featureType(x):
     CATEGORICAL_FEATURES_WITH_VOCABULARY = {
         "Geography": sorted(list(x["Geography"].unique())),
         "Gender": sorted(list(x["Gender"].unique()))
-      #  "HasCrCard": sorted(list(x["HasCrCard"].unique())),
-       # "IsActiveMember": sorted(list(x["IsActiveMember"].unique()))        
+        #,"HasCrCard": sorted(list(x["HasCrCard"].unique())),
+        #"IsActiveMember": sorted(list(x["IsActiveMember"].unique()))        
     }
+    
+    
     # A list of the categorical feature names.
     CATEGORICAL_FEATURE_NAMES = list(CATEGORICAL_FEATURES_WITH_VOCABULARY.keys())
-
     FEATURE_NAMES = NUMERIC_FEATURE_NAMES + CATEGORICAL_FEATURE_NAMES
     
-    return FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,NUMERIC_FEATURE_NAMES,Headers,CATEGORICAL_FEATURES_WITH_VOCABULARY,x
+    return FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,NUMERIC_FEATURE_NAMES,Headers,CATEGORICAL_FEATURES_WITH_VOCABULARY
 
 
 def encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY):
@@ -171,16 +176,14 @@ def encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOC
     for feature_name in inputs:
         #Convert string feature names into categories
         if feature_name in CATEGORICAL_FEATURE_NAMES:
-            print("Feature Name: ", feature_name)
+            print("Feature Name : ",feature_name)
             vocabulary = CATEGORICAL_FEATURES_WITH_VOCABULARY[feature_name]
             # Create a lookup to convert a string values to an integer indices.
             # Since we are not using a mask token, nor expecting any out of vocabulary
             # (oov) token, we set mask_token to None and num_oov_indices to 0.If we set num_oov_indices to 1 it will take any other values
             #outside the vocabulary
-            #if feature_name.find("Gender") !=-1:
+            #if feature_name.find("Gender") !=-1 or feature_name.find("Geography") !=-1:
             lookup = StringLookup(vocabulary=vocabulary, mask_token=None, num_oov_indices=0)  #num_oov_indices = 1
-            #elif feature_name.find("Geography") !=-1:
-            #    lookup = StringLookup(vocabulary=vocabulary, mask_token=None, num_oov_indices=0)  #num_oov_indices = 1
             #else:
              #   lookup = IntegerLookup(vocabulary=vocabulary, mask_token=None, num_oov_indices=0)  #num_oov_indices = 1
             
@@ -204,7 +207,7 @@ def encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOC
     encoded_features = layers.concatenate(encoded_features)
     return encoded_features
 
-def run_train_experiment(model,train_file,headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers,model_dir):
+def run_train_experiment(model,train_file,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES):
     learning_rate = 0.01
     batch_size = 265
     num_epochs = 10
@@ -217,25 +220,32 @@ def run_train_experiment(model,train_file,headers,TARGET_FEATURE_NAME,NUMERIC_FE
 
     #Converts dataset into Tensorflow data set wth Batch
     print("Start training the model...")
-    train_dataset = get_dataset_from_csv(train_file,headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers,shuffle=True, batch_size=batch_size)
+    train_dataset = get_dataset_from_csv(train_file,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,shuffle=True, batch_size=batch_size)
 
     model.fit(train_dataset, epochs=num_epochs)
     print("Model training finished")
     
-    model.save(os.path.join(os.environ['SM_MODEL_DIR'], 'model.pkl'))
-    model_path = os.path.join(model_dir,"model.joblib")
-    joblib.dump(model,model_path) 
+    # Generate a timestamp
+  #  timestamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+
+# Define the filename with the timestamp
+#model_filename = f"my_model_{timestamp}.h5"
+
+    model.save("s3://mysagey/model_forest/model.pkl")
+    #sess.upload_data(path = args.data_dir_train+"//"+args.train_file,bucket = bucket , key_prefix= sk_prefix)
+    model_path = "s3://mysagey/model_forest"
+    #joblib.dump(model,"s3://mysagey/model") 
     print("Model persisted at " + model_path)
     print()
     
     
-        
-    
-def run_test_experiment(model,test_file,headers,TARGET_FEATURE_NAME,NUMERIC_FEATURES_NAMES,Headers):
+
+
+def run_test_experiment(model,test_file,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,X_test):
     batch_size = 265
        
     print("Evaluating the model on the test data...")
-    test_dataset = get_dataset_from_csv(test_file,headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers,shuffle=True, batch_size=batch_size)
+    test_dataset = get_dataset_from_csv(test_file,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,shuffle=True, batch_size=batch_size)
 
     _, accuracy = model.evaluate(test_dataset)
     print(f"Test accuracy: {round(accuracy * 100, 2)}%")
@@ -256,7 +266,7 @@ The tf.data.experimental.make_csv_dataset function in TensorFlow is a utility fo
 If you need to explicitly specify the data types of columns when using this function, you can use the column_defaults argument
 """
 
-def get_dataset_from_csv(csv_file_path,headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers, shuffle=False, batch_size=128):
+def get_dataset_from_csv(csv_file_path,headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,shuffle=False, batch_size=128):
     
     TARGET_LABELS = ["1","0"]
     COLUMN_DEFAULTS = [[0.0] if feature_name in NUMERIC_FEATURE_NAMES else ["NA"]
@@ -281,13 +291,15 @@ def get_dataset_from_csv(csv_file_path,headers,TARGET_FEATURE_NAME,NUMERIC_FEATU
 
 
 
-def create_tree_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY):    
+def create_tree_model(TARGET_LABELS,x):    
     depth = 10
     used_features_rate = 1.0
     num_classes = len(TARGET_LABELS)
+    FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,NUMERIC_FEATURE_NAMES,Headers,CATEGORICAL_FEATURES_WITH_VOCABULARY = get_featureType(x)
+        
     inputs = create_model_inputs(FEATURE_NAMES,NUMERIC_FEATURE_NAMES)
        
-    features = encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)    
+    features = encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)       
     features = layers.BatchNormalization()(features)
     num_features = features.shape[1]
     
@@ -296,7 +308,7 @@ def create_tree_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORI
 
     outputs = tree(features)
     model = keras.Model(inputs=inputs, outputs=outputs)
-    return model
+    return model,Headers,NUMERIC_FEATURE_NAMES
 
 class NeuralDecisionForest(keras.Model):
     def __init__(self, num_trees, depth, num_features, used_features_rate, num_classes):
@@ -309,7 +321,7 @@ class NeuralDecisionForest(keras.Model):
             self.ensemble.append(
                 NeuralDecisionTree(depth, num_features, used_features_rate, self.num_classes)
             )
-    #Blackbox
+
     def call(self, inputs):
         # Initialize the outputs: a [batch_size, num_classes] matrix of zeros.
         batch_size = tf.shape(inputs)[0]
@@ -324,16 +336,21 @@ class NeuralDecisionForest(keras.Model):
     
     
 
-def create_forest_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY):
-    inputs = create_model_inputs(FEATURE_NAMES,NUMERIC_FEATURE_NAMES)
-    features = encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)
-    features = layers.BatchNormalization()(features)
-    num_features = features.shape[1]
+def create_forest_model(TARGET_LABELS,x):
+
+    
     num_classes = len(TARGET_LABELS)
     num_trees = 25
     depth = 5
     used_features_rate = 0.5
 
+    FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,NUMERIC_FEATURE_NAMES,Headers,CATEGORICAL_FEATURES_WITH_VOCABULARY = get_featureType(x)
+    
+    inputs = create_model_inputs(FEATURE_NAMES,NUMERIC_FEATURE_NAMES)
+    features = encode_inputs(inputs,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)
+    features = layers.BatchNormalization()(features)
+    num_features = features.shape[1]
+    
     print("********** TRAINING NEURAL DECISION FOREST *************")
     forest_model = NeuralDecisionForest(
         num_trees, depth, num_features, used_features_rate, num_classes
@@ -341,97 +358,32 @@ def create_forest_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGO
 
     outputs = forest_model(features)
     model = keras.Model(inputs=inputs, outputs=outputs)
-    return model
-
-
+    return model,Headers,NUMERIC_FEATURE_NAMES
 
 if __name__ == "__main__":
 
-     # Get the current user directory (the directory where the script is located)
-    current_directory = os.getcwd()
-    # Define the file name or file path relative to the current directory
-    file_name = "params.yaml"
-        
-    # Construct the full file path by joining the current directory and file name
-    file_path = os.path.join(current_directory, "data")
-    params_path = os.path.join(file_path, file_name)
+       
     
-    """ with open(params_path, "r") as params_file:
-        params = yaml.safe_load(params_file)
-
-    model_dir = params['model_dir']
-    data_dir_train = params['data_dir']
-    data_dir_test = params['data_dir']
-    depth = params['depth']
-    used_features = params['used_features']
-    num_classes = params['num_classes']
-    epochs = params['epochs']
-    learning_rate = params['learning_rate']
-    batch_size = params['batch_size']
-    
-    """
-    x = create_dataset.create_data()
-    """
-    x.reset_index(drop=True, inplace=True)
-    x.rename(columns = {'Recommended IND':'target'}, inplace = True)
-    x['HasCrCard'] = x['HasCrCard'].astype(str)
-    x['IsActiveMember'] = x['IsActiveMember'].astype(str)
-    
-            
-    #### DNDF Code starts #################################################################
-    Headers = ["CreditScore","Geography","Gender","Age","Tenure","Balance","NumOfProducts","HasCrCard","IsActiveMember","EstimatedSalary","Exited"]  
-    # A list of the numerical feature names.
-    NUMERIC_FEATURE_NAMES = [
-    "CreditScore",
-    "Age",
-    "Balance",
-    "EstimatedSalary",
-    "NumOfProducts",
-    "Tenure"
-    
-    ]
-# A dictionary of the categorical features and their vocabulary.
-    CATEGORICAL_FEATURES_WITH_VOCABULARY = {
-        "Geography": sorted(list(x["Geography"].unique())),
-        "Gender": sorted(list(x["Gender"].unique())),
-        "HasCrCard": sorted(list(x["HasCrCard"].unique())),
-        "IsActiveMember": sorted(list(x["IsActiveMember"].unique()))        
-    }
-    
-    # A list of the categorical feature names.
-    CATEGORICAL_FEATURE_NAMES = list(CATEGORICAL_FEATURES_WITH_VOCABULARY.keys())
-
-    FEATURE_NAMES = NUMERIC_FEATURE_NAMES + CATEGORICAL_FEATURE_NAMES
-    X_train, X_test = train_test_split(x,test_size=0.30, random_state=42)
-    
-    
-    file_path = os.path.join(current_directory, "data")
-    X_train.to_csv(file_path+'\\train_data.csv', index=False)
-    X_test.to_csv(file_path+'\\test_data.csv', index=False)
-    """
-    train_path =  os.path.join(file_path, "train_data.csv")
-    test_path = os.path.join(file_path, "test_data.csv")
-    
+    train_path =  "s3://mysagey/test/train_data.csv"
+    test_path = "s3://mysagey/test/test_data.csv"
+   
     
     TARGET_FEATURE_NAME = "Exited"
     # A list of the labels of the target features.
-    TARGET_LABELS = [1,0] 
+    TARGET_LABELS = [1, 0]
     
-    FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,NUMERIC_FEATURE_NAMES,Headers,CATEGORICAL_FEATURES_WITH_VOCABULARY,x = get_featureType(x)
-    inputs = create_model_inputs(FEATURE_NAMES,NUMERIC_FEATURE_NAMES)
-   
-    X_train, X_test = train_test_split(x,test_size=0.30, random_state=42)
-     
-    tree_model = create_tree_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)    
-    run_train_experiment(tree_model,train_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers)
+    train_data = pd.read_csv(train_path)
+    test_data = pd.read_csv(test_path)
     
-    tree_model = create_tree_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)
-    run_test_experiment(tree_model,test_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers)
-   
-   
-    forest_model = create_forest_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)    
-    run_train_experiment(forest_model,train_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers)
+    #tree_model,Headers,NUMERIC_FEATURE_NAMES = create_tree_model(TARGET_LABELS,train_data)
+    #run_train_experiment(tree_model,train_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES)
     
-    forest_model = create_forest_model(TARGET_LABELS,FEATURE_NAMES,NUMERIC_FEATURE_NAMES,CATEGORICAL_FEATURE_NAMES,CATEGORICAL_FEATURES_WITH_VOCABULARY)
-    run_test_experiment(forest_model,test_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,Headers)
+    #tree_model,Headers,NUMERIC_FEATURE_NAMES = create_tree_model(TARGET_LABELS,test_data)
+    #run_test_experiment(tree_model,test_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,test_data)
+   
+    forest_model,Headers,NUMERIC_FEATURE_NAMES = create_forest_model(TARGET_LABELS,train_data)
+    run_train_experiment(forest_model,train_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES)
+    
+    #forest_model,Headers,NUMERIC_FEATURE_NAMES = create_forest_model(TARGET_LABELS,test_data)
+    #run_test_experiment(forest_model,test_path,Headers,TARGET_FEATURE_NAME,NUMERIC_FEATURE_NAMES,test_data)
    
