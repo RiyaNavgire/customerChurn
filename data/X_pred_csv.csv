@@ -1,0 +1,2 @@
+RiskAdjustedReturn,TransactionFrequency,TransactionFees,EstimatedAvgReturnPrivateAsset,EstimatedReturnPublicAsset,EstimatedAvgReturnCommodities,FuturePricesNaturalGas,SPVolatilityIndex,BloombergHedgeFundIndex,RealEstateIndex,SPPrivateEquityIndex,CreditScore,AccountType,RiskType,FinancialGoalUpdated,CustomerRevenueFall70,CustomerRevenueRecovery40,SentimentAnalysis,Churn
+53,22,7,28,30,45,6,197,1860,1694,338,4,1,0,1,0,0,2,1
