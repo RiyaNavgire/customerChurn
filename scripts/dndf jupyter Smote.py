@@ -6,6 +6,7 @@ from tensorflow import keras
 from tensorflow.keras import layers
 import math
 import shap
+
 from tensorflow.keras.layers import IntegerLookup,StringLookup
 from tensorflow.keras.saving import register_keras_serializable
 from imblearn.over_sampling import SMOTE
@@ -25,7 +26,9 @@ from lime import lime_tabular
 #skip encoding based on cat/num column in create_model and column_defaults
 #change target datatype to int
 #
-
+print("SHAP version is:", shap.__version__)
+print("Tensorflow version is:", tf.__version__)
+    
 CSV_HEADER = ['RiskAdjustedReturn', 'TransactionFrequency', 'TransactionFees', 'EstimatedAvgReturnPrivateAsset', 'EstimatedReturnPublicAsset', 'EstimatedAvgReturnCommodities', 'FuturePricesNaturalGas', 'SPVolatilityIndex', 'BloombergHedgeFundIndex', 'RealEstateIndex', 'SPPrivateEquityIndex','CreditScore', 'AccountType', 'RiskType', 'FinancialGoalUpdated', 'CustomerRevenueFall70', 'CustomerRevenueRecovery40', 'SentimentAnalysis','Churn']
 
 NUMERIC_FEATURE_NAMES = [
@@ -317,6 +320,10 @@ class NeuralDecisionForest(keras.Model):
    #crossentropy loss function when there are two or more label classes. We expect labels to be provided in a one_hot representation.
    # If you want to provide labels as integers, please use SparseCategoricalCrossentropy loss.
  
+ 
+
+
+
 def run_experiment(model):
     
     model.compile(
@@ -339,13 +346,18 @@ def run_experiment(model):
     
     print("Evaluating the model on the test data...")
     test_dataset = get_dataset_from_csv(test_data_file, batch_size=batch_size)
-
-    _, accuracy = model.evaluate(test_dataset)
+    print("Test dataset - ",test_dataset)
+    
+    loss, accuracy = model.evaluate(test_dataset)
     print(f"Test accuracy: {round(accuracy * 100, 2)}%")
-    #print(f"Test loss: {round(loss * 100, 2)}%")
+    print(f"Test loss: {round(loss * 100, 2)}%")
+    
+    # Preprocess data if needed
+    
+  
 
-    y_classes = model.predict(test_dataset)
-    y_pred_numpy = y_classes.argmax(axis=1)
+  #  y_classes = model.predict(test_dataset)
+  #  y_pred_numpy = y_classes.argmax(axis=1)
     
     # y_pred = pd.DataFrame(y_pred_numpy,columns = ['Churn_Prediction'])
     # y_test = test_data['Churn']
@@ -364,42 +376,75 @@ def run_experiment(model):
     # cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = [False, True])
     # cm_display.plot()
     # plt.show() 
+    
     pred_data_file = "D:\\MLProject\\customerRealtime\\data\\X_pred_csv.csv"
     pred_data = pd.read_csv(pred_data_file)
-    target_name = pred_data['Churn']
-#     # Exclude the last column (target)
-    feature_names = list(pred_data.columns)
-    data_train_tf = tf.data.experimental.make_csv_dataset( 
-      pred_data_file, 
-      batch_size=10, 
-      label_name='Churn', 
-      column_defaults=COLUMN_DEFAULTS,
-      header=True,
-      num_epochs=1, 
-      ignore_errors=True,) 
     
-    encoded_features = []
-    for feature_name in feature_names:
-         data_train_tf[feature_name] = layers.Input(name=feature_name, shape=(), dtype=tf.float32)
-         encoded_feature = data_train_tf[feature_name]
-         if data_train_tf[feature_name].shape[-1] is None:
-                 encoded_feature = tf.expand_dims(encoded_feature, -1)
-         encoded_features.append(encoded_feature)
-    encoded_features = layers.concatenate(encoded_features)
+    pred_dataset = get_dataset_from_csv(pred_data_file, batch_size=batch_size)
+    
+    y_prediction = model.predict(pred_dataset)
+    y_prediction_numpy = y_prediction.argmax(axis=1)
+    print(y_prediction)
+    print(y_prediction_numpy[0])
+    
+    
+    print("Model Summary- ",model.summary())
   
-    features = layers.BatchNormalization()(encoded_features)
-    #data_numpy = np.concatenate(list(data_train_tf.as_numpy_iterator()), axis=0)
-    print("Tensorflow dataset -:  ",features)
+  ####################COde for SHAP ########################333
     
     
-# Create a SHAP explainer for your DNDF model
-    explainer = shap.DeepExplainer(model, features)
-
-  # Get SHAP explanation for the chosen customer
-    shap_values = explainer.shap_values(data_train_tf)
-# Explain the model's prediction (assuming binary classification)
-    shap.force_plot(explainer.base_value, shap_values[0], features, feat_names=feature_names)
+    pred_data_file_shap = "D:\\MLProject\\customerRealtime\\data\\X_pred_csv_Shap.csv"
+    pred_df_shap = pd.read_csv(pred_data_file_shap)
+    
+    pred_dataset_shap = get_dataset_from_csv(pred_data_file_shap, batch_size=batch_size)
+    
+     #Convert and use with model
+#TF 2.3.0 and SHAP 0.35.0
+    shap.explainers._deep.deep_tf.op_handlers["AddV2"] = shap.explainers._deep.deep_tf.passthrough #this solves the "shap_ADDV2" problem but another one will appear
+   # shap.explainers._deep.deep_tf.op_handlers["FusedBatchNormV3"] = shap.explainers._deep.deep_tf.passthrough
+   # tf.experimental.numpy.experimental_enable_numpy_behavior()
+    
+    single_instance_batch = next(iter(pred_dataset_shap))  # Assuming features are at index 1 nad 0 has column headers
+    
+    
+    input_tensors = {}
+    for feature_name, tensor in single_instance_batch[0].items():
+        input_tensors[feature_name] = tensor
+    
+    values = tf.nest.flatten(list(input_tensors.values()))
+    
+    print("Input Tensor valuess - ", values)
+    
+    shap_explainer = shap.DeepExplainer(model,values)
+    print(shap_explainer)
+    #tf.Tensor([[0.7732629  0.22673711]], shape=(1, 2), dtype=float32)
+    output = [tf.convert_to_tensor(np.array([0.6091264, 0.39087358])),tf.convert_to_tensor(np.array([0.2703359, 0.72966415]))]
+  
+    # value_input  = list(tf.cast(input_tensors,tf.float32))
+    # print(len(value_input))
+    # print(value_input)
+    shap_values = shap_explainer.shap_values(output)
+   # Get SHAP explanation for the chosen customer
    
+# Explain the model's prediction (assuming binary classification)
+    shap.force_plot( shap_values, feat_names=FEATURE_NAMES)
+    
+    #######################LIME##############################
+#     explainer = lime_tabular.LimeTabularExplainer(
+#         input_tensors.__getitem__,
+#         feature_names=FEATURE_NAMES, 
+#         class_names=["0", "1"],
+#         mode="classification"
+#     )
+     
+# # # Get the explanation for the chosen customer
+#     explanation = explainer.explain_instance(model) 
+
+# # # Print the explanation
+#     print(explanation.as_text())
+
+# # # Alternatively, visualize the explanation with a bar chart
+#     explanation.as_pyplot_bar(label="Churn")
     
     
     

@@ -1,23 +1,23 @@
+
 import tensorflow as tf
-import tensorflow_datasets as tfds
+from tensorflow import keras
+import keras_tuner as kt
+print(kt.__version__)
+print(tf.__version__)
+
+from tensorflow.keras import layers
+from tensorflow.keras.layers import IntegerLookup
+
 import numpy as np
 import pandas as pd
-from tensorflow import keras
-from tensorflow.keras import layers
 import math
-import shap
-from tensorflow.keras.layers import IntegerLookup,StringLookup
-from tensorflow.keras.saving import register_keras_serializable
+import matplotlib.pyplot as plt
+
 from imblearn.over_sampling import SMOTE
 from sklearn import metrics
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
-import matplotlib.pyplot as plt
-import lime
-from lime import lime_tabular
 
-#tf.debugging.set_log_device_placement(True)
-#from tensorflow.keras import tuners
-#from tensorflow.keras.tuners import RandomSearch
+
 
 #change num-oov-incides =0
 #change string to integerlookup
@@ -137,8 +137,10 @@ CATEGORICAL_FEATURE_NAMES = list(CATEGORICAL_FEATURES_WITH_VOCABULARY.keys())
 # A list of all the input features.
 #FEATURE_NAMES = NUMERIC_FEATURE_NAMES + CATEGORICAL_FEATURE_NAMES
 # A list of column default values for each feature.
-COLUMN_DEFAULTS = [[0.0] if feature_name in CSV_HEADER  else ["NA"] for feature_name in CSV_HEADER ]
-
+COLUMN_DEFAULTS = [
+    [0.0] #if feature_name in NUMERIC_FEATURE_NAMES else ["NA"]
+    for feature_name in CSV_HEADER
+]
 # The name of the target feature.
 TARGET_FEATURE_NAME = "Churn"
 # A list of the labels of the target features.
@@ -151,7 +153,7 @@ TARGET_LABELS = [0, 1]
 def create_model_inputs():
     inputs = {}
     for feature_name in FEATURE_NAMES:
-        inputs[feature_name] = layers.Input(name=feature_name, shape=(), dtype=tf.float32)
+         inputs[feature_name] = layers.Input(name=feature_name, shape=(), dtype=tf.float32)
     return inputs
 
 #Treat them as categorical columns: handle categorical columns with integer-encoded indices
@@ -180,7 +182,6 @@ def get_dataset_from_csv(csv_file_path, shuffle=False, batch_size=128):
         shuffle=shuffle,
     ).map(lambda features, target: (features, target_label_lookup(target)))      
     return dataset.cache()
-
 
 
 def encode_inputs(inputs):
@@ -289,7 +290,7 @@ class NeuralDecisionTree(keras.Model):
         return outputs
     
     
-
+    
 class NeuralDecisionForest(keras.Model):
     def __init__(self, num_trees, depth, num_features, used_features_rate, num_classes):
         super().__init__()
@@ -333,76 +334,39 @@ def run_experiment(model):
     model.fit(train_dataset, epochs=num_epochs)
     print("Model training finished")
     
-    if model is not None:
-      model.save("D:\\MLProject\\customerRealtime\\data\\DNDF_model.keras")
-      print("Model saved successfully")
-    
     print("Evaluating the model on the test data...")
     test_dataset = get_dataset_from_csv(test_data_file, batch_size=batch_size)
 
-    _, accuracy = model.evaluate(test_dataset)
+    loss, accuracy = model.evaluate(test_dataset)
     print(f"Test accuracy: {round(accuracy * 100, 2)}%")
-    #print(f"Test loss: {round(loss * 100, 2)}%")
-
+    print(f"Test loss: {round(loss * 100, 2)}%")
+    
     y_classes = model.predict(test_dataset)
     y_pred_numpy = y_classes.argmax(axis=1)
     
-    # y_pred = pd.DataFrame(y_pred_numpy,columns = ['Churn_Prediction'])
-    # y_test = test_data['Churn']
-    # print("y_pred : ", y_pred)
-    # print("y_test : ", y_test)
+    y_pred = pd.DataFrame(y_pred_numpy,columns = ['Churn_Prediction'])
     
-    # #It is about regularization. model.predict() returns the final output of the model, i.e. answer. While model.evaluate() returns the loss.
-    # # The loss is used to train the model (via backpropagation).
+    y_test = test_data['Churn']
     
-    # accuracyscore = accuracy_score(y_test, y_pred)
-    # print(f"Test accuracy score:" ,accuracyscore)
+    print("y_pred : ", y_pred)
+    
+    print("y_test : ", y_test)
+    
+    #It is about regularization. model.predict() returns the final output of the model, i.e. answer. While model.evaluate() returns the loss.
+    # The loss is used to train the model (via backpropagation).
+    
+    accuracyscore = accuracy_score(y_test, y_pred)
+    print(f"Test accuracy score:" ,accuracyscore)
 
-    # cm = confusion_matrix(y_test, y_pred)
-    # print("Classification Report:\n", classification_report(y_test, y_pred))
+    cm = confusion_matrix(y_test, y_pred)
+    print("Classification Report:\n", classification_report(y_test, y_pred))
 
-    # cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = [False, True])
-    # cm_display.plot()
-    # plt.show() 
-    pred_data_file = "D:\\MLProject\\customerRealtime\\data\\X_pred_csv.csv"
-    pred_data = pd.read_csv(pred_data_file)
-    target_name = pred_data['Churn']
-#     # Exclude the last column (target)
-    feature_names = list(pred_data.columns)
-    data_train_tf = tf.data.experimental.make_csv_dataset( 
-      pred_data_file, 
-      batch_size=10, 
-      label_name='Churn', 
-      column_defaults=COLUMN_DEFAULTS,
-      header=True,
-      num_epochs=1, 
-      ignore_errors=True,) 
-    
-    encoded_features = []
-    for feature_name in feature_names:
-         data_train_tf[feature_name] = layers.Input(name=feature_name, shape=(), dtype=tf.float32)
-         encoded_feature = data_train_tf[feature_name]
-         if data_train_tf[feature_name].shape[-1] is None:
-                 encoded_feature = tf.expand_dims(encoded_feature, -1)
-         encoded_features.append(encoded_feature)
-    encoded_features = layers.concatenate(encoded_features)
-  
-    features = layers.BatchNormalization()(encoded_features)
-    #data_numpy = np.concatenate(list(data_train_tf.as_numpy_iterator()), axis=0)
-    print("Tensorflow dataset -:  ",features)
-    
-    
-# Create a SHAP explainer for your DNDF model
-    explainer = shap.DeepExplainer(model, features)
+    cm_display = metrics.ConfusionMatrixDisplay(confusion_matrix = cm, display_labels = [False, True])
 
-  # Get SHAP explanation for the chosen customer
-    shap_values = explainer.shap_values(data_train_tf)
-# Explain the model's prediction (assuming binary classification)
-    shap.force_plot(explainer.base_value, shap_values[0], features, feat_names=feature_names)
+    cm_display.plot()
+    plt.show()
+    
    
-    
-    
-    
 def create_tree_model(depth, used_features_rate, num_classes):
     inputs = create_model_inputs()
     features = encode_inputs(inputs)
@@ -422,106 +386,61 @@ def create_forest_model(num_trees, depth, used_features_rate, num_classes):
     features = layers.BatchNormalization()(features)
     num_features = features.shape[1]
 
-    forest_model = NeuralDecisionForest(num_trees, depth, num_features, used_features_rate, num_classes)
+    forest_model = NeuralDecisionForest(
+        num_trees, depth, num_features, used_features_rate, num_classes)
 
     outputs = forest_model(features)
     model = keras.Model(inputs=inputs, outputs=outputs)
     return model
 
-def limeEvaluation():   
-# Assuming you have your DNDF model loaded as 'model'
-# Assuming your test data is stored in a pandas dataframe named 'df_test'
 
-   loaded_model = keras.models.load_model("D:\\MLProject\\customerRealtime\\data\\DNDF_model.keras",custom_objects={'NeuralDecisionForest': NeuralDecisionForest})
-   if loaded_model is not None:
-       print("Model loaded successfully")
+def create_forest_model_hyper(hp):
+    
+    inputs = create_model_inputs()
+    features = encode_inputs(inputs)
+    features = layers.BatchNormalization()(features)
+    num_features = features.shape[1]
+    
+    num_trees = hp.Int('num_trees', min_value=10, max_value=150)
+    batch_size = hp.Int('batch_size', min_value=64, max_value=512)
+    depth = hp.Int('depth', min_value=5, max_value=15)
+    used_features_rate = hp.Float('used_features_rate', min_value=0.3,max_value=1.0)
+    num_epochs = hp.Int('num_epochs', min_value = 10,max_value=20)
+    
+    
+    forest_model = NeuralDecisionForest(
+        num_trees, depth, num_features, used_features_rate, num_classes)
 
-   pred_data_file = "D:\\MLProject\\customerRealtime\\data\\X_pred_csv.csv"
-   pred_data = pd.read_csv(pred_data_file)
-   
-   target_name = pred_data['Churn']
-    # Exclude the last column (target)
-   feature_names = list(pred_data.columns)
-  
-   inputs ={}
-   # Potential correction:
-# Create a plain tensor for data storage
-   pred_data[feature_names] = tf.constant(pred_data[feature_names].values, dtype=tf.float32)  # Assuming you have feature values
+    outputs = forest_model(features)
+    model = keras.Model(inputs=inputs, outputs=outputs)
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        loss=keras.losses.SparseCategoricalCrossentropy(), 
+        metrics=[keras.metrics.SparseCategoricalAccuracy()],
+        )
 
-# Use input layers for model architecture only
-   for feature_name,feature_data in pred_data.items():
-        inputs[feature_name] = layers.Input(data= feature_data,name=feature_name, shape=(), dtype=tf.float32)
-   print(inputs)
-   print("\n\n\n")
-   encoded_features = encode_inputs(inputs)
-   print(encoded_features)
-        
-# # Create a LIME explainer for tabular data
-   explainer = lime_tabular.LimeTabularExplainer(
-        pred_data[feature_names].values, 
-        feature_names=feature_names, 
-        class_names=["0", "1"],
-        mode="classification"
+    print("Start training the model...")
+    train_dataset = get_dataset_from_csv(
+        train_data_file, shuffle=True, batch_size=batch_size
     )
 
-   predict_fn = lambda x :loaded_model.predict(x)  
-   
-# # Get the explanation for the chosen customer
-   explanation = explainer.explain_instance(pred_data.iloc[0][feature_names].values,predict_fn) 
-
-# # Print the explanation
-   print(explanation.as_text())
-
-# # Alternatively, visualize the explanation with a bar chart
-   explanation.as_pyplot_bar(label=target_name)
-
-
-def shapEvaluation():
-    # Assuming you have your DNDF model loaded as 'model'
-# Assuming your test data is stored in a NumPy array named 'X_test'
-   loaded_model = keras.models.load_model("D:\\MLProject\\customerRealtime\\data\\DNDF_model.keras",custom_objects={'NeuralDecisionForest': NeuralDecisionForest})
-   if loaded_model is not None:
-       print("Model loaded successfully")
-
-   pred_data_file = "D:\\MLProject\\customerRealtime\\data\\X_pred_csv.csv"
-   pred_data = pd.read_csv(pred_data_file)
-   target_name = pred_data['Churn']
-#     # Exclude the last column (target)
-   feature_names = list(pred_data.columns)
-   
-   for col in feature_names:
-        pred_data[col] = pred_data[col].astype(np.float32)
- 
-     
-   inputs = create_model_inputs()
-   encoded_features = encode_inputs(inputs)
-   encoded_features = layers.BatchNormalization()(encoded_features)
-   
-  
-   print("Encoded features - ",encoded_features)
-#    # Potential correction:
-# # Create a plain tensor for data storage
-#    pred_data[feature_names] = tf.constant(pred_data[feature_names], dtype=tf.float32)  # Assuming you have feature values
-
-# # Use input layers for model architecture only
-#    for feature_name in pred_data.items():
-#         inputs[feature_name] = layers.Input(name=feature_name, shape=(), dtype=tf.float32)
-#    print(inputs)
-#    print("\n\n\n")
-#    encoded_features = encode_inputs(inputs)
-#    print(encoded_features)
+    model.fit(train_dataset, epochs=num_epochs)
+    print("Model training finished")
     
-   
-# Create a SHAP explainer for your DNDF model
-   explainer = shap.DeepExplainer(loaded_model, encoded_features[feature_names].values)
+    print("Evaluating the model on the test data...")
+    test_dataset = get_dataset_from_csv(test_data_file, batch_size=batch_size)
 
-  # Get SHAP explanation for the chosen customer
-   shap_values = explainer.shap_values(pred_data[0,:])
-# Explain the model's prediction (assuming binary classification)
-   shap.force_plot(explainer.base_value, shap_values[0], encoded_features[feature_names].values, feat_names=feature_names)
+    loss, accuracy = model.evaluate(test_dataset)
+    print(f"Test accuracy: {round(accuracy * 100, 2)}%")
+    print(f"Test loss: {round(loss * 100, 2)}%")
+    
+    return model
+    
+
 
 if __name__ == "__main__":
     
+    #### **************** MAIN PROGRAM ****************
     learning_rate = 0.01
     batch_size = 265
     num_epochs = 10
@@ -529,15 +448,57 @@ if __name__ == "__main__":
     depth = 5
     used_features_rate = 1.0
     num_classes = len(TARGET_LABELS)
-     
-    #tree_model = create_tree_model(depth, used_features_rate, num_classes)
-    #run_experiment(tree_model)
+    
+    #THE ABOVE PARAMETERS ARE AUTOMATICALLY PASSED ACROSS METHODS PRESENT IN SAME CLASS SIMILAR TO GLOBAL PARAMETERS
+    
+    # tree_model = create_tree_model(depth, used_features_rate, num_classes)
+    # run_experiment(tree_model)
 
-    num_trees = 2
-    depth = 5
-    used_features_rate = 0.5
-    forest_model = create_forest_model(num_trees, depth, used_features_rate, num_classes)
-    run_experiment(forest_model)
-    #
-    # limeEvaluation()
-    #shapEvaluation()
+    # num_trees = 36
+    # depth = 5
+    # used_features_rate = 0.5
+    # forest_model = create_forest_model(num_trees, depth, used_features_rate, num_classes)
+    # run_experiment(forest_model)
+    
+    
+    ## *****************  HYPERPARAMETER TUNING ********************************
+    # Define search space for each hyperparameter
+    X_train_file = "D:\\MLProject\\customerRealtime\\data\\X_train_csv.csv"
+    Y_train_file = "D:\\MLProject\\customerRealtime\\data\\Y_train_csv.csv"
+    
+    X_train = pd.read_csv(X_train_file)
+    y_train = pd.read_csv(Y_train_file)
+    
+    hyperparameters =[ 
+                       {
+                        "num_trees" : [50, 100, 150],  # List of values to try
+                        "depth" :[4, 6, 8],
+                        "used_features_rate" : [0.5, 0.7, 0.9],
+                        "epochs" :[50, 100, 150],
+                        "batch_size" : [32, 64, 128]
+                        }
+                    ]
+    tuner = kt.RandomSearch(
+        objective='val_accuracy',  # Objective metric to optimize (e.g., val_loss)
+        max_trials=10,  # Number of random hyperparameter combinations to try
+        directory='D:\\MLProject\\customerRealtime\\my_tuner_results',  # Optional: Directory to save search results
+        project_name='dndf_tuning'  # Optional: Project name for saving results
+    )
+    
+    for hp_dict in hyperparameters:
+  # Update tuner with current hyperparameter set
+        tuner.hyperparameters.update(hp_dict)
+  
+  # Call the build_dndf_model function with hp object
+        best_model = tuner.search(create_forest_model_hyper, epochs=10, validation_data=(X_train, y_train))
+
+  # Evaluate the best model (optional)
+  # ...  # Reset tuner for next hyperparameter set (optional)
+        
+        best_model = tuner.get_best_models()[0]
+        print("Best Model : ",best_model)
+                
+        tuner.reset()  # This might be helpful depending on your tuner
+        print("Tuning finished!")
+
+
